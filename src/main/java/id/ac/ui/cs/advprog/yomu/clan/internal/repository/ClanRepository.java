@@ -49,8 +49,17 @@ public class ClanRepository {
             )
         """);
         jdbcTemplate.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_clan_member_user
-            ON clan_members (user_id)
+            CREATE TABLE IF NOT EXISTS member_activity (
+                id UUID PRIMARY KEY,
+                clan_id UUID NOT NULL,
+                user_id UUID NOT NULL,
+                activity_date DATE NOT NULL,
+                quizzes_taken INTEGER NOT NULL DEFAULT 0,
+                total_correct_answers INTEGER NOT NULL DEFAULT 0,
+                total_questions INTEGER NOT NULL DEFAULT 0,
+                mission_completed BOOLEAN NOT NULL DEFAULT FALSE,
+                UNIQUE(user_id, activity_date)
+            )
         """);
     }
 
@@ -193,4 +202,43 @@ public class ClanRepository {
     public void deleteMember(UUID memberId) {
         jdbcTemplate.update("DELETE FROM clan_members WHERE id = ?", memberId);
     }
+
+    public void recordQuizActivity(UUID userId, UUID clanId, int correct, int total) {
+        jdbcTemplate.update("""
+            INSERT INTO member_activity (id, clan_id, user_id, activity_date, quizzes_taken, total_correct_answers, total_questions)
+            VALUES (?, ?, ?, CURRENT_DATE, 1, ?, ?)
+            ON CONFLICT (user_id, activity_date) DO UPDATE SET
+                quizzes_taken = member_activity.quizzes_taken + 1,
+                total_correct_answers = member_activity.total_correct_answers + EXCLUDED.total_correct_answers,
+                total_questions = member_activity.total_questions + EXCLUDED.total_questions
+            """, UUID.randomUUID(), clanId, userId, correct, total);
+    }
+
+    public void recordMissionCompletion(UUID userId, UUID clanId) {
+        jdbcTemplate.update("""
+            INSERT INTO member_activity (id, clan_id, user_id, activity_date, mission_completed)
+            VALUES (?, ?, ?, CURRENT_DATE, TRUE)
+            ON CONFLICT (user_id, activity_date) DO UPDATE SET
+                mission_completed = TRUE
+            """, UUID.randomUUID(), clanId, userId);
+    }
+
+    public ClanActivitySummary getClanActivitySummary(UUID clanId) {
+        return jdbcTemplate.queryForObject("""
+            SELECT 
+                COUNT(*) as total_members,
+                SUM(CASE WHEN mission_completed THEN 1 ELSE 0 END) as completed_missions,
+                SUM(total_correct_answers) as total_correct,
+                SUM(total_questions) as total_q
+            FROM member_activity 
+            WHERE clan_id = ? AND activity_date = CURRENT_DATE
+            """, (rs, rowNum) -> new ClanActivitySummary(
+                rs.getInt("total_members"),
+                rs.getInt("completed_missions"),
+                rs.getInt("total_correct"),
+                rs.getInt("total_q")
+            ), clanId);
+    }
+
+    public record ClanActivitySummary(int activeMembers, int completedMissions, int totalCorrect, int totalQuestions) {}
 }

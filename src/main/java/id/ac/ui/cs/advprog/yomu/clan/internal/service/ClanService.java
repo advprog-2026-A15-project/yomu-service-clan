@@ -29,4 +29,10 @@ public interface ClanService {
     List<ClanMember> getPendingMembers(UUID clanId);
 
     void triggerEndOfSeason();
+
+    void processUserActivity(UUID userId, int quizScore, java.time.Instant occurredAt);
+
+    void processAchievementUnlocked(UUID userId, String achievementName);
+
+    void processMissionCompleted(UUID userId);
 }

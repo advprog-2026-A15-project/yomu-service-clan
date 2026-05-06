@@ -189,6 +189,69 @@ public class ClanServiceImpl implements ClanService {
         }
     }
 
+    @Override
+    @Transactional
+    public void processUserActivity(UUID userId, int quizScore, java.time.Instant occurredAt) {
+        repository.findMemberByUserId(userId).ifPresent(member -> {
+            // Update personal score
+            int newPersonalScore = member.getPersonalScore() + quizScore;
+            repository.updateMemberScore(member.getId(), newPersonalScore);
+
+            // Record activity for buffs/debuffs
+            // Assume each quiz has 5 questions for simplicity, or we could pass total questions in event
+            repository.recordQuizActivity(userId, member.getClanId(), quizScore, 5);
+
+            // Recalculate clan score and buffs
+            updateClanStatus(member.getClanId());
+        });
+    }
+
+    @Override
+    @Transactional
+    public void processAchievementUnlocked(UUID userId, String achievementName) {
+        repository.findMemberByUserId(userId).ifPresent(member -> {
+            // Special bonus for achievements if needed
+            int bonus = 50; 
+            repository.updateMemberScore(member.getId(), member.getPersonalScore() + bonus);
+            updateClanStatus(member.getClanId());
+        });
+    }
+
+    @Override
+    @Transactional
+    public void processMissionCompleted(UUID userId) {
+        repository.findMemberByUserId(userId).ifPresent(member -> {
+            repository.recordMissionCompletion(userId, member.getClanId());
+            updateClanStatus(member.getClanId());
+        });
+    }
+
+    private void updateClanStatus(UUID clanId) {
+        Clan clan = getClanById(clanId);
+        List<ClanMember> members = repository.findMembersByClanId(clanId);
+        
+        // 1. Calculate Base Score based on Tier Strategy
+        ScoringStrategy strategy = ScoringStrategyFactory.getStrategy(clan.getTier());
+        int baseScore = strategy.calculateScore(members);
+
+        // 2. Calculate Multipliers (Buffs/Debuffs)
+        ClanRepository.ClanActivitySummary summary = repository.getClanActivitySummary(clanId);
+        double multiplier = 1.0;
+
+        // Buff: 50% members complete daily mission
+        if (members.size() > 0 && (double) summary.completedMissions() / members.size() >= 0.5) {
+            multiplier *= 1.2; // Productivity Buff
+        }
+
+        // Debuff: Average accuracy < 50%
+        if (summary.totalQuestions() > 0 && (double) summary.totalCorrect() / summary.totalQuestions() < 0.5) {
+            multiplier *= 0.8; // Low Accuracy Penalty
+        }
+
+        // 3. Update Clan
+        repository.updateClanScore(clanId, (int)(baseScore * multiplier), multiplier);
+    }
+
     private void validateLeader(Clan clan, UUID leaderId) {
         if (!clan.getLeaderId().equals(leaderId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
