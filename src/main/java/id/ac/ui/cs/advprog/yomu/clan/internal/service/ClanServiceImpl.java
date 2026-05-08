@@ -4,12 +4,16 @@ import id.ac.ui.cs.advprog.yomu.clan.internal.model.*;
 import id.ac.ui.cs.advprog.yomu.clan.internal.repository.ClanRepository;
 import id.ac.ui.cs.advprog.yomu.clan.internal.service.scoring.ScoringStrategy;
 import id.ac.ui.cs.advprog.yomu.clan.internal.service.scoring.ScoringStrategyFactory;
+import id.ac.ui.cs.advprog.yomu.shared.event.ClanDemotedEvent;
+import id.ac.ui.cs.advprog.yomu.shared.event.ClanPromotedEvent;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -22,9 +26,11 @@ import java.util.UUID;
 public class ClanServiceImpl implements ClanService {
 
     private final ClanRepository repository;
+    private final RabbitTemplate rabbitTemplate;
 
-    public ClanServiceImpl(ClanRepository repository) {
+    public ClanServiceImpl(ClanRepository repository, RabbitTemplate rabbitTemplate) {
         this.repository = repository;
+        this.rabbitTemplate = rabbitTemplate;
     }
 
     @Override
@@ -159,6 +165,9 @@ public class ClanServiceImpl implements ClanService {
     @Override
     @Transactional
     public void triggerEndOfSeason() {
+        UUID seasonId = UUID.randomUUID();
+        Instant occurredAt = Instant.now();
+
         // Untuk setiap tier, proses promosi/degradasi
         for (Tier tier : Tier.values()) {
             List<Clan> clans = repository.findClansByTier(tier);
@@ -171,14 +180,17 @@ public class ClanServiceImpl implements ClanService {
 
             for (int i = 0; i < clans.size(); i++) {
                 Clan clan = clans.get(i);
+                repository.archiveSeasonResult(seasonId, clan, i + 1);
                 if (i < promoteCount && tier.ordinal() < Tier.DIAMOND.ordinal()) {
                     // Promosi
                     Tier nextTier = Tier.values()[tier.ordinal() + 1];
                     repository.updateClanTier(clan.getId(), nextTier);
+                    publishClanPromoted(seasonId, clan, tier, nextTier, occurredAt);
                 } else if (i >= clans.size() - demoteCount && tier.ordinal() > Tier.BRONZE.ordinal()) {
                     // Degradasi
                     Tier prevTier = Tier.values()[tier.ordinal() - 1];
                     repository.updateClanTier(clan.getId(), prevTier);
+                    publishClanDemoted(seasonId, clan, tier, prevTier, occurredAt);
                 }
             }
         }
@@ -256,6 +268,44 @@ public class ClanServiceImpl implements ClanService {
         if (!clan.getLeaderId().equals(leaderId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                 "Hanya Ketua Clan yang dapat melakukan aksi ini");
+        }
+    }
+
+    private void publishClanPromoted(
+            UUID seasonId,
+            Clan clan,
+            Tier previousTier,
+            Tier newTier,
+            Instant occurredAt) {
+        for (ClanMember member : repository.findMembersByClanId(clan.getId())) {
+            rabbitTemplate.convertAndSend("yomu.clan.promoted", new ClanPromotedEvent(
+                seasonId,
+                clan.getId(),
+                member.getUserId(),
+                clan.getName(),
+                previousTier.name(),
+                newTier.name(),
+                occurredAt
+            ));
+        }
+    }
+
+    private void publishClanDemoted(
+            UUID seasonId,
+            Clan clan,
+            Tier previousTier,
+            Tier newTier,
+            Instant occurredAt) {
+        for (ClanMember member : repository.findMembersByClanId(clan.getId())) {
+            rabbitTemplate.convertAndSend("yomu.clan.demoted", new ClanDemotedEvent(
+                seasonId,
+                clan.getId(),
+                member.getUserId(),
+                clan.getName(),
+                previousTier.name(),
+                newTier.name(),
+                occurredAt
+            ));
         }
     }
 }

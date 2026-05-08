@@ -33,7 +33,7 @@ public class ClanRepository {
                 leader_id UUID NOT NULL,
                 tier VARCHAR(50) NOT NULL DEFAULT 'BRONZE',
                 total_score INTEGER NOT NULL DEFAULT 0,
-                score_multiplier DOUBLE NOT NULL DEFAULT 1.0,
+                score_multiplier DOUBLE PRECISION NOT NULL DEFAULT 1.0,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
@@ -59,6 +59,19 @@ public class ClanRepository {
                 total_questions INTEGER NOT NULL DEFAULT 0,
                 mission_completed BOOLEAN NOT NULL DEFAULT FALSE,
                 UNIQUE(user_id, activity_date)
+            )
+        """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS season_archives (
+                id UUID PRIMARY KEY,
+                season_id UUID NOT NULL,
+                clan_id UUID NOT NULL,
+                clan_name VARCHAR(255) NOT NULL,
+                tier VARCHAR(50) NOT NULL,
+                rank_position INTEGER NOT NULL,
+                total_score INTEGER NOT NULL,
+                score_multiplier DOUBLE PRECISION NOT NULL,
+                archived_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """);
     }
@@ -131,6 +144,23 @@ public class ClanRepository {
         jdbcTemplate.update("""
             UPDATE clans SET tier = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
             """, tier.name(), clanId);
+    }
+
+    public void archiveSeasonResult(UUID seasonId, Clan clan, int rankPosition) {
+        jdbcTemplate.update("""
+            INSERT INTO season_archives
+                (id, season_id, clan_id, clan_name, tier, rank_position, total_score, score_multiplier, archived_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            UUID.randomUUID(),
+            seasonId,
+            clan.getId(),
+            clan.getName(),
+            clan.getTier().name(),
+            rankPosition,
+            clan.getTotalScore(),
+            clan.getScoreMultiplier()
+        );
     }
 
     public int deleteClanById(UUID id) {
