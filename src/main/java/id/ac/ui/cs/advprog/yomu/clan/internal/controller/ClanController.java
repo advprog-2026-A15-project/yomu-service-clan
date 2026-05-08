@@ -77,6 +77,7 @@ public class ClanController {
     }
 
     @PostMapping("/admin/end-season")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> endSeason() {
         clanService.triggerEndOfSeason();
         return ResponseEntity.ok().build();
