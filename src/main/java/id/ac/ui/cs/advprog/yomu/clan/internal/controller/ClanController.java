@@ -1,6 +1,8 @@
 package id.ac.ui.cs.advprog.yomu.clan.internal.controller;
 
 import id.ac.ui.cs.advprog.yomu.clan.internal.model.*;
+import id.ac.ui.cs.advprog.yomu.clan.internal.controller.dto.CreateClanRequest;
+import jakarta.validation.Valid;
 import id.ac.ui.cs.advprog.yomu.clan.internal.service.ClanService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -8,7 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -19,12 +20,10 @@ public class ClanController {
     private final ClanService clanService;
 
     @PostMapping
-    public ResponseEntity<Clan> createClan(@RequestBody Map<String, String> body) {
-        String name = body.get("name");
-        String description = body.getOrDefault("description", "");
-        UUID leaderId = UUID.fromString(body.get("leaderId"));
+    public ResponseEntity<Clan> createClan(@Valid @RequestBody CreateClanRequest body) {
+        String description = body.description() == null ? "" : body.description();
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(clanService.createClan(name, description, leaderId));
+                .body(clanService.createClan(body.name(), description, body.leaderId()));
     }
 
     @GetMapping("/{id}")
@@ -77,6 +76,7 @@ public class ClanController {
     }
 
     @PostMapping("/admin/end-season")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> endSeason() {
         clanService.triggerEndOfSeason();
         return ResponseEntity.ok().build();
