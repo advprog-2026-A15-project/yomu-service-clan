@@ -15,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDateTime;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -160,6 +161,11 @@ public class ClanServiceImpl implements ClanService {
     @Override
     public List<ClanMember> getPendingMembers(UUID clanId) {
         return repository.findPendingMembersByClanId(clanId);
+    }
+
+    @Override
+    public Optional<ClanMember> getMembership(UUID userId) {
+        return repository.findMemberByUserId(userId);
     }
 
     @Override
