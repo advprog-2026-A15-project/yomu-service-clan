@@ -3,6 +3,7 @@ package id.ac.ui.cs.advprog.yomu.clan.internal.service;
 import id.ac.ui.cs.advprog.yomu.clan.internal.model.*;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -27,6 +28,8 @@ public interface ClanService {
     List<ClanMember> getMembers(UUID clanId);
 
     List<ClanMember> getPendingMembers(UUID clanId);
+
+    Optional<ClanMember> getMembership(UUID userId);
 
     void triggerEndOfSeason();
 
