@@ -121,14 +121,14 @@ public class ClanController {
     }
 
     private UUID resolveTargetUserId(UUID requestedUserId, Authentication authentication, String forbiddenMessage) {
-        if (authentication == null || authentication.getCredentials() == null) {
+        if (authentication == null || authentication.getPrincipal() == null) {
             if (requestedUserId != null) {
                 return requestedUserId;
             }
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User tidak terautentikasi");
         }
 
-        UUID authenticatedUserId = UUID.fromString(authentication.getCredentials().toString());
+        UUID authenticatedUserId = UUID.fromString(authentication.getPrincipal().toString());
         if (requestedUserId == null || requestedUserId.equals(authenticatedUserId)) {
             return authenticatedUserId;
         }
