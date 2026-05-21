@@ -38,4 +38,6 @@ public interface ClanService {
     void processAchievementUnlocked(UUID userId, String achievementName);
 
     void processMissionCompleted(UUID userId);
+
+    void addAdminScore(UUID clanId, int score);
 }

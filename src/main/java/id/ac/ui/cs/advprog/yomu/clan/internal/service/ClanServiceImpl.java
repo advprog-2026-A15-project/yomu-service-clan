@@ -244,6 +244,15 @@ public class ClanServiceImpl implements ClanService {
         });
     }
 
+    @Override
+    @Transactional
+    public void addAdminScore(UUID clanId, int score) {
+        Clan clan = getClanById(clanId);
+        int newScore = clan.getTotalScore() + score;
+        clan.setTotalScore(newScore);
+        repository.updateClanScore(clanId, newScore, clan.getScoreMultiplier());
+    }
+
     private void updateClanStatus(UUID clanId) {
         Clan clan = getClanById(clanId);
         List<ClanMember> members = repository.findMembersByClanId(clanId);

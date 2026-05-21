@@ -120,6 +120,14 @@ public class ClanController {
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/{clanId}/admin/add-score")
+    public ResponseEntity<Void> addScore(
+            @PathVariable UUID clanId,
+            @RequestParam int score) {
+        clanService.addAdminScore(clanId, score);
+        return ResponseEntity.ok().build();
+    }
+
     private UUID resolveTargetUserId(UUID requestedUserId, Authentication authentication, String forbiddenMessage) {
         if (authentication == null || authentication.getPrincipal() == null) {
             if (requestedUserId != null) {
