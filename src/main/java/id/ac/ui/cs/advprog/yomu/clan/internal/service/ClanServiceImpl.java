@@ -6,6 +6,7 @@ import id.ac.ui.cs.advprog.yomu.clan.internal.service.scoring.ScoringStrategy;
 import id.ac.ui.cs.advprog.yomu.clan.internal.service.scoring.ScoringStrategyFactory;
 import id.ac.ui.cs.advprog.yomu.shared.event.ClanDemotedEvent;
 import id.ac.ui.cs.advprog.yomu.shared.event.ClanPromotedEvent;
+import id.ac.ui.cs.advprog.yomu.shared.event.LeagueActivityEvent;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -87,22 +88,31 @@ public class ClanServiceImpl implements ClanService {
         if (tier != null && !tier.isBlank()) {
             try {
                 Tier t = Tier.valueOf(tier.toUpperCase());
-                List<Clan> clans = repository.findClansByTier(t);
-                // Recalculate scores using strategy pattern
-                ScoringStrategy strategy = ScoringStrategyFactory.getStrategy(t);
-                for (Clan clan : clans) {
-                    List<ClanMember> members = repository.findMembersByClanId(clan.getId());
-                    int calculatedScore = strategy.calculateScore(members);
-                    clan.setTotalScore((int) (calculatedScore * clan.getScoreMultiplier()));
-                }
-                clans.sort((a, b) -> b.getTotalScore() - a.getTotalScore());
-                return clans;
+                return recalculateAndSortClans(repository.findClansByTier(t), t);
             } catch (IllegalArgumentException e) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Tier tidak valid: " + tier);
             }
         }
-        return repository.findAllClans();
+        // Recalculate all clans grouped by tier so scores are consistent
+        List<Clan> all = repository.findAllClans();
+        for (Clan clan : all) {
+            ScoringStrategy strategy = ScoringStrategyFactory.getStrategy(clan.getTier());
+            List<ClanMember> members = repository.findMembersByClanId(clan.getId());
+            clan.setTotalScore((int) (strategy.calculateScore(members) * clan.getScoreMultiplier()));
+        }
+        all.sort((a, b) -> b.getTotalScore() - a.getTotalScore());
+        return all;
+    }
+
+    private List<Clan> recalculateAndSortClans(List<Clan> clans, Tier tier) {
+        ScoringStrategy strategy = ScoringStrategyFactory.getStrategy(tier);
+        for (Clan clan : clans) {
+            List<ClanMember> members = repository.findMembersByClanId(clan.getId());
+            clan.setTotalScore((int) (strategy.calculateScore(members) * clan.getScoreMultiplier()));
+        }
+        clans.sort((a, b) -> b.getTotalScore() - a.getTotalScore());
+        return clans;
     }
 
     @Override
@@ -134,7 +144,7 @@ public class ClanServiceImpl implements ClanService {
     public void acceptMember(UUID clanId, UUID memberId, UUID leaderId) {
         Clan clan = getClanById(clanId);
         validateLeader(clan, leaderId);
-        repository.updateMemberStatus(memberId, "ACCEPTED");
+        repository.updateMemberStatus(clanId, memberId, "ACCEPTED");
     }
 
     @Override
@@ -142,7 +152,7 @@ public class ClanServiceImpl implements ClanService {
     public void rejectMember(UUID clanId, UUID memberId, UUID leaderId) {
         Clan clan = getClanById(clanId);
         validateLeader(clan, leaderId);
-        repository.deleteMember(memberId);
+        repository.deleteMember(clanId, memberId);
     }
 
     @Override
@@ -179,7 +189,8 @@ public class ClanServiceImpl implements ClanService {
             List<Clan> clans = repository.findClansByTier(tier);
             if (clans.size() < 2) continue;
 
-            clans.sort((a, b) -> b.getTotalScore() - a.getTotalScore());
+            // Hitung ulang skor pakai strategy sebelum sort agar promosi/degradasi akurat
+            recalculateAndSortClans(clans, tier);
 
             int promoteCount = Math.max(1, clans.size() / 4); // Top 25% naik
             int demoteCount = Math.max(1, clans.size() / 4);  // Bottom 25% turun
@@ -201,47 +212,63 @@ public class ClanServiceImpl implements ClanService {
             }
         }
 
-        // Reset semua skor setelah end of season
+        // Reset semua skor dan aktivitas setelah end of season
         for (Clan clan : repository.findAllClans()) {
             repository.updateClanScore(clan.getId(), 0, 1.0);
         }
+        repository.resetAllMemberScores();
+        repository.clearAllDailyActivity();
     }
 
     @Override
     @Transactional
-    public void processUserActivity(UUID userId, int quizScore, java.time.Instant occurredAt) {
-        repository.findMemberByUserId(userId).ifPresent(member -> {
-            // Update personal score
-            int newPersonalScore = member.getPersonalScore() + quizScore;
-            repository.updateMemberScore(member.getId(), newPersonalScore);
-
-            // Record activity for buffs/debuffs
-            // Assume each quiz has 5 questions for simplicity, or we could pass total questions in event
-            repository.recordQuizActivity(userId, member.getClanId(), quizScore, 5);
-
-            // Recalculate clan score and buffs
-            updateClanStatus(member.getClanId());
-        });
+    public void leaveClan(UUID userId) {
+        repository.findMemberByUserId(userId)
+            .orElseThrow(() -> new ResponseStatusException(
+                HttpStatus.NOT_FOUND, "Anda tidak tergabung dalam clan manapun"));
+        repository.deleteMemberByUserId(userId);
     }
 
     @Override
     @Transactional
-    public void processAchievementUnlocked(UUID userId, String achievementName) {
-        repository.findMemberByUserId(userId).ifPresent(member -> {
-            // Special bonus for achievements if needed
-            int bonus = 50; 
-            repository.updateMemberScore(member.getId(), member.getPersonalScore() + bonus);
-            updateClanStatus(member.getClanId());
-        });
+    public void processUserActivity(UUID userId, int quizScore, int totalQuestions, java.time.Instant occurredAt) {
+        repository.findMemberByUserId(userId)
+            .filter(m -> "ACCEPTED".equals(m.getStatus()))
+            .ifPresent(member -> {
+                int newPersonalScore = member.getPersonalScore() + quizScore;
+                repository.updateMemberScore(member.getId(), newPersonalScore);
+                repository.recordQuizActivity(userId, member.getClanId(), quizScore, totalQuestions);
+                rabbitTemplate.convertAndSend("yomu.league.activity", new LeagueActivityEvent(
+                    userId, member.getClanId(), UUID.randomUUID(), "QUIZ_COMPLETED", occurredAt
+                ));
+                updateClanStatus(member.getClanId());
+            });
+    }
+
+    @Override
+    @Transactional
+    public void processAchievementUnlocked(UUID userId, String achievementCode) {
+        repository.findMemberByUserId(userId)
+            .filter(m -> "ACCEPTED".equals(m.getStatus()))
+            .ifPresent(member -> {
+                if (repository.hasProcessedAchievementBonus(userId, achievementCode)) {
+                    return;
+                }
+                repository.markAchievementBonusProcessed(userId, achievementCode);
+                repository.updateMemberScore(member.getId(), member.getPersonalScore() + 50);
+                updateClanStatus(member.getClanId());
+            });
     }
 
     @Override
     @Transactional
     public void processMissionCompleted(UUID userId) {
-        repository.findMemberByUserId(userId).ifPresent(member -> {
-            repository.recordMissionCompletion(userId, member.getClanId());
-            updateClanStatus(member.getClanId());
-        });
+        repository.findMemberByUserId(userId)
+            .filter(m -> "ACCEPTED".equals(m.getStatus()))
+            .ifPresent(member -> {
+                repository.recordMissionCompletion(userId, member.getClanId());
+                updateClanStatus(member.getClanId());
+            });
     }
 
     private void updateClanStatus(UUID clanId) {

@@ -22,7 +22,7 @@ public class ClanEventListener {
         key = "yomu.quiz.completed"
     ))
     public void onQuizCompleted(QuizCompletedEvent event) {
-        clanService.processUserActivity(event.userId(), event.score(), event.occurredAt());
+        clanService.processUserActivity(event.userId(), event.score(), event.totalQuestions(), event.occurredAt());
     }
 
     @RabbitListener(bindings = @QueueBinding(
@@ -31,7 +31,7 @@ public class ClanEventListener {
         key = "yomu.achievement.unlocked"
     ))
     public void onAchievementUnlocked(AchievementUnlockedEvent event) {
-        clanService.processAchievementUnlocked(event.userId(), event.achievementName());
+        clanService.processAchievementUnlocked(event.userId(), event.achievementCode());
     }
 
     @RabbitListener(bindings = @QueueBinding(

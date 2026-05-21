@@ -113,6 +113,16 @@ public class ClanController {
         return ResponseEntity.noContent().build();
     }
 
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> leaveClan(Authentication authentication) {
+        if (authentication == null || authentication.getPrincipal() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User tidak terautentikasi");
+        }
+        UUID userId = UUID.fromString(authentication.getPrincipal().toString());
+        clanService.leaveClan(userId);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/admin/end-season")
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> endSeason() {

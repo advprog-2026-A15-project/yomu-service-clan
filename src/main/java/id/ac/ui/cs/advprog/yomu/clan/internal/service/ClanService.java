@@ -33,9 +33,11 @@ public interface ClanService {
 
     void triggerEndOfSeason();
 
-    void processUserActivity(UUID userId, int quizScore, java.time.Instant occurredAt);
+    void processUserActivity(UUID userId, int quizScore, int totalQuestions, java.time.Instant occurredAt);
 
-    void processAchievementUnlocked(UUID userId, String achievementName);
+    void processAchievementUnlocked(UUID userId, String achievementCode);
 
     void processMissionCompleted(UUID userId);
+
+    void leaveClan(UUID userId);
 }
