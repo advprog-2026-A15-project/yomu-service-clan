@@ -74,6 +74,14 @@ public class ClanRepository {
                 archived_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """);
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS clan_processed_achievement_bonuses (
+                user_id UUID NOT NULL,
+                achievement_code VARCHAR(100) NOT NULL,
+                processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, achievement_code)
+            )
+        """);
     }
 
     // ─── Clan ────────────────────────────────────────────────────────
@@ -215,11 +223,16 @@ public class ClanRepository {
         ).stream().findFirst();
     }
 
-    public void updateMemberStatus(UUID memberId, String status) {
-        jdbcTemplate.update(
-            "UPDATE clan_members SET status = ? WHERE id = ?",
-            status, memberId
+    public void updateMemberStatus(UUID clanId, UUID memberId, String status) {
+        int updated = jdbcTemplate.update(
+            "UPDATE clan_members SET status = ? WHERE id = ? AND clan_id = ?",
+            status, memberId, clanId
         );
+        if (updated == 0) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND,
+                "Member tidak ditemukan di clan ini");
+        }
     }
 
     public void updateMemberScore(UUID memberId, int personalScore) {
@@ -229,8 +242,41 @@ public class ClanRepository {
         );
     }
 
-    public void deleteMember(UUID memberId) {
-        jdbcTemplate.update("DELETE FROM clan_members WHERE id = ?", memberId);
+    public void deleteMember(UUID clanId, UUID memberId) {
+        int deleted = jdbcTemplate.update(
+            "DELETE FROM clan_members WHERE id = ? AND clan_id = ?",
+            memberId, clanId
+        );
+        if (deleted == 0) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND,
+                "Member tidak ditemukan di clan ini");
+        }
+    }
+
+    public void deleteMemberByUserId(UUID userId) {
+        jdbcTemplate.update("DELETE FROM clan_members WHERE user_id = ?", userId);
+    }
+
+    public void resetAllMemberScores() {
+        jdbcTemplate.update("UPDATE clan_members SET personal_score = 0");
+    }
+
+    public void clearAllDailyActivity() {
+        jdbcTemplate.update("DELETE FROM member_activity");
+    }
+
+    public boolean hasProcessedAchievementBonus(UUID userId, String achievementCode) {
+        Integer count = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM clan_processed_achievement_bonuses WHERE user_id = ? AND achievement_code = ?",
+            Integer.class, userId, achievementCode);
+        return count != null && count > 0;
+    }
+
+    public void markAchievementBonusProcessed(UUID userId, String achievementCode) {
+        jdbcTemplate.update(
+            "INSERT INTO clan_processed_achievement_bonuses (user_id, achievement_code) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            userId, achievementCode);
     }
 
     public void recordQuizActivity(UUID userId, UUID clanId, int correct, int total) {
