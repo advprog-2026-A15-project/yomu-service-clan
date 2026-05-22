@@ -2,6 +2,7 @@ package id.ac.ui.cs.advprog.yomu.clan.internal.listener;
 
 import id.ac.ui.cs.advprog.yomu.clan.internal.service.ClanService;
 import id.ac.ui.cs.advprog.yomu.shared.event.AchievementUnlockedEvent;
+import id.ac.ui.cs.advprog.yomu.shared.event.MissionRewardClaimedEvent;
 import id.ac.ui.cs.advprog.yomu.shared.event.QuizCompletedEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.annotation.Exchange;
@@ -41,5 +42,14 @@ public class ClanEventListener {
     ))
     public void onMissionCompleted(id.ac.ui.cs.advprog.yomu.shared.event.DailyMissionCompletedEvent event) {
         clanService.processMissionCompleted(event.userId());
+    }
+
+    @RabbitListener(bindings = @QueueBinding(
+        value = @Queue(value = "clan.mission.reward.claimed.queue", durable = "true"),
+        exchange = @Exchange(value = "yomu.events", type = "topic"),
+        key = "yomu.mission.reward.claimed"
+    ))
+    public void onMissionRewardClaimed(MissionRewardClaimedEvent event) {
+        clanService.processMissionRewardClaimed(event.userId(), event.rewardPoints());
     }
 }
