@@ -39,7 +39,11 @@ public interface ClanService {
 
     void processMissionCompleted(UUID userId);
 
+    void processMissionRewardClaimed(UUID userId, int rewardPoints);
+
     void addAdminScore(UUID clanId, int score);
+
+    void recalculateAllTiers();
 
     void leaveClan(UUID userId);
 }

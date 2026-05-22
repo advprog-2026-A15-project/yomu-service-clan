@@ -273,6 +273,26 @@ public class ClanServiceImpl implements ClanService {
 
     @Override
     @Transactional
+    public void processMissionRewardClaimed(UUID userId, int rewardPoints) {
+        repository.findMemberByUserId(userId)
+            .filter(m -> "ACCEPTED".equals(m.getStatus()))
+            .ifPresent(member -> {
+                int newScore = member.getPersonalScore() + rewardPoints;
+                repository.updateMemberScore(member.getId(), newScore);
+                updateClanStatus(member.getClanId());
+            });
+    }
+
+    @Override
+    @Transactional
+    public void recalculateAllTiers() {
+        for (Clan clan : repository.findAllClans()) {
+            updateClanStatus(clan.getId());
+        }
+    }
+
+    @Override
+    @Transactional
     public void addAdminScore(UUID clanId, int score) {
         Clan clan = getClanById(clanId);
         int newScore = clan.getTotalScore() + score;
@@ -283,27 +303,57 @@ public class ClanServiceImpl implements ClanService {
     private void updateClanStatus(UUID clanId) {
         Clan clan = getClanById(clanId);
         List<ClanMember> members = repository.findMembersByClanId(clanId);
-        
-        // 1. Calculate Base Score based on Tier Strategy
-        ScoringStrategy strategy = ScoringStrategyFactory.getStrategy(clan.getTier());
+
+        // 1. Auto-promosi/degradasi tier berdasarkan raw sum personalScore
+        int rawSum = members.stream().mapToInt(ClanMember::getPersonalScore).sum();
+        Tier targetTier = Tier.fromScore(rawSum);
+        Tier currentTier = clan.getTier();
+
+        if (targetTier != currentTier) {
+            repository.updateClanTier(clanId, targetTier);
+            clan.setTier(targetTier);
+            publishTierChangeEvents(clan, currentTier, targetTier);
+        }
+
+        // 2. Hitung skor tampilan pakai strategy sesuai tier baru
+        ScoringStrategy strategy = ScoringStrategyFactory.getStrategy(targetTier);
         int baseScore = strategy.calculateScore(members);
 
-        // 2. Calculate Multipliers (Buffs/Debuffs)
+        // 3. Hitung multiplier (buff/debuff)
         ClanRepository.ClanActivitySummary summary = repository.getClanActivitySummary(clanId);
         double multiplier = 1.0;
 
-        // Buff: 50% members complete daily mission
-        if (members.size() > 0 && (double) summary.completedMissions() / members.size() >= 0.5) {
-            multiplier *= 1.2; // Productivity Buff
+        if (!members.isEmpty() && (double) summary.completedMissions() / members.size() >= 0.5) {
+            multiplier *= 1.2;
         }
-
-        // Debuff: Average accuracy < 50%
         if (summary.totalQuestions() > 0 && (double) summary.totalCorrect() / summary.totalQuestions() < 0.5) {
-            multiplier *= 0.8; // Low Accuracy Penalty
+            multiplier *= 0.8;
         }
 
-        // 3. Update Clan
+        // 4. Simpan skor final
         repository.updateClanScore(clanId, (int)(baseScore * multiplier), multiplier);
+    }
+
+    private void publishTierChangeEvents(Clan clan, Tier previousTier, Tier newTier) {
+        UUID seasonId = UUID.randomUUID();
+        Instant occurredAt = Instant.now();
+        List<ClanMember> members = repository.findMembersByClanId(clan.getId());
+
+        if (newTier.ordinal() > previousTier.ordinal()) {
+            for (ClanMember member : members) {
+                rabbitTemplate.convertAndSend("yomu.clan.promoted", new ClanPromotedEvent(
+                    seasonId, clan.getId(), member.getUserId(),
+                    clan.getName(), previousTier.name(), newTier.name(), occurredAt
+                ));
+            }
+        } else {
+            for (ClanMember member : members) {
+                rabbitTemplate.convertAndSend("yomu.clan.demoted", new ClanDemotedEvent(
+                    seasonId, clan.getId(), member.getUserId(),
+                    clan.getName(), previousTier.name(), newTier.name(), occurredAt
+                ));
+            }
+        }
     }
 
     private void validateLeader(Clan clan, UUID leaderId) {

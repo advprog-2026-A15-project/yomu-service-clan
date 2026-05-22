@@ -130,6 +130,13 @@ public class ClanController {
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/admin/recalculate-tiers")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> recalculateTiers() {
+        clanService.recalculateAllTiers();
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/{clanId}/admin/add-score")
     public ResponseEntity<Void> addScore(
             @PathVariable UUID clanId,
