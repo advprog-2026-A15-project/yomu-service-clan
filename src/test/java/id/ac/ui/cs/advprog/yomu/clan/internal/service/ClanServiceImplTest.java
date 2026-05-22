@@ -3,14 +3,15 @@ package id.ac.ui.cs.advprog.yomu.clan.internal.service;
 import id.ac.ui.cs.advprog.yomu.clan.internal.model.Clan;
 import id.ac.ui.cs.advprog.yomu.clan.internal.model.ClanMember;
 import id.ac.ui.cs.advprog.yomu.clan.internal.model.Tier;
+import id.ac.ui.cs.advprog.yomu.clan.internal.monitoring.ClanMetrics;
 import id.ac.ui.cs.advprog.yomu.clan.internal.repository.ClanRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import id.ac.ui.cs.advprog.yomu.shared.event.ClanPromotedEvent;
 import id.ac.ui.cs.advprog.yomu.shared.event.LeagueActivityEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -48,13 +49,17 @@ class ClanServiceImplTest {
     @Mock
     private RabbitTemplate rabbitTemplate;
 
-    @InjectMocks
     private ClanServiceImpl service;
 
     private CapturingRabbit captures;
 
     @BeforeEach
     void setUp() {
+        service = new ClanServiceImpl(
+            repository,
+            rabbitTemplate,
+            new ClanMetrics(new SimpleMeterRegistry())
+        );
         captures = new CapturingRabbit(rabbitTemplate);
     }
 

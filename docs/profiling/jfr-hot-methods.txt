@@ -1,0 +1,12 @@
+
+                          Java Methods that Execute the Most
+
+Method                                                                 Samples Percent
+---------------------------------------------------------------------- ------- -------
+java.util.HashMap.resize()                                                   1  14,29%
+org.apache.catalina.connector.RequestFacade.checkFacade()                    1  14,29%
+org.apache.tomcat.util.net.NioEndpoint$NioSocketWrapper.doClose()            1  14,29%
+org.springframework.core.annotation.AttributeMethods.size()                  1  14,29%
+org.h2.jdbc.JdbcStatement.closeOldResultSet()                                1  14,29%
+java.util.concurrent.ConcurrentHashMap.putVal(Object, Object, boolean)       1  14,29%
+java.lang.ThreadLocal$ThreadLocalMap.getEntry(ThreadLocal)                   1  14,29%

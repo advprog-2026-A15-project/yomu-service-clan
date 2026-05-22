@@ -1,0 +1,4 @@
+86799:
+Dumped recording "clan-profile", 1.2 MB written to:
+
+/Users/aliakbar/Documents/university/AdPRO/yomu-infra/service-clan/docs/profiling/clan-runtime.jfr

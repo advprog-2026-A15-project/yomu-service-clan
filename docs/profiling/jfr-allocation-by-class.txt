@@ -1,0 +1,30 @@
+
+                                                 Allocation by Class
+
+Object Type                                                                                       Allocation Pressure
+------------------------------------------------------------------------------------------------- -------------------
+java.time.Instant                                                                                              30,74%
+byte[]                                                                                                         30,51%
+java.io.EOFException                                                                                            7,52%
+java.lang.String                                                                                                2,25%
+int[]                                                                                                           2,10%
+java.lang.Object[]                                                                                              1,74%
+java.util.ArrayList$Itr                                                                                         1,40%
+java.net.URL                                                                                                    1,33%
+sun.nio.ch.SocketAdaptor                                                                                        1,15%
+org.springframework.boot.loader.net.protocol.jar.JarFileUrlKey                                                  1,05%
+org.h2.mvstore.SFChunk                                                                                          0,78%
+java.util.concurrent.ConcurrentHashMap$ValueIterator                                                            0,74%
+java.util.HashMap$Node                                                                                          0,74%
+java.util.LinkedHashMap                                                                                         0,73%
+java.util.concurrent.ConcurrentHashMap$Node                                                                     0,67%
+io.micrometer.common.KeyValue[]                                                                                 0,64%
+java.util.HashMap                                                                                               0,55%
+java.util.concurrent.ConcurrentHashMap                                                                          0,50%
+long[]                                                                                                          0,50%
+io.micrometer.common.KeyValues$ArrayIterator                                                                    0,50%
+java.lang.StringBuilder                                                                                         0,48%
+io.micrometer.core.instrument.Meter$Id                                                                          0,42%
+java.lang.management.MemoryUsage[]                                                                              0,41%
+short[]                                                                                                         0,39%
+io.micrometer.core.instrument.ImmutableTag                                                                      0,37%
