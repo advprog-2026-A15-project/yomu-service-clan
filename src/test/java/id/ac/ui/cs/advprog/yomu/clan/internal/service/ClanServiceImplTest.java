@@ -6,6 +6,7 @@ import id.ac.ui.cs.advprog.yomu.clan.internal.model.Tier;
 import id.ac.ui.cs.advprog.yomu.clan.internal.monitoring.ClanMetrics;
 import id.ac.ui.cs.advprog.yomu.clan.internal.repository.ClanRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import id.ac.ui.cs.advprog.yomu.shared.event.ClanDemotedEvent;
 import id.ac.ui.cs.advprog.yomu.shared.event.ClanPromotedEvent;
 import id.ac.ui.cs.advprog.yomu.shared.event.LeagueActivityEvent;
 import org.junit.jupiter.api.BeforeEach;
@@ -109,6 +110,16 @@ class ClanServiceImplTest {
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
                         .isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void getClanById_found_returnsClan() {
+        Clan clan = ClanTestFixtures.clan(Tier.BRONZE, 0);
+        when(repository.findClanById(ClanTestFixtures.CLAN_ID)).thenReturn(Optional.of(clan));
+
+        Clan result = service.getClanById(ClanTestFixtures.CLAN_ID);
+
+        assertThat(result).isSameAs(clan);
     }
 
     @Test
@@ -251,6 +262,35 @@ class ClanServiceImplTest {
         assertThat(result.getFirst().getTotalScore()).isEqualTo(15);
     }
 
+    @Test
+    void getLeaderboard_noTier_sortsMultipleClansDescending() {
+        UUID lowId = UUID.randomUUID();
+        UUID highId = UUID.randomUUID();
+        Clan low = ClanTestFixtures.clanWithId(lowId, Tier.BRONZE, 0, ClanTestFixtures.LEADER_ID);
+        Clan high = ClanTestFixtures.clanWithId(highId, Tier.BRONZE, 0, ClanTestFixtures.OTHER_USER_ID);
+        when(repository.findAllClans()).thenReturn(new ArrayList<>(List.of(low, high)));
+        when(repository.findMembersByClanId(lowId))
+                .thenReturn(List.of(ClanTestFixtures.member(ClanTestFixtures.LEADER_ID, 5)));
+        when(repository.findMembersByClanId(highId))
+                .thenReturn(List.of(ClanTestFixtures.member(ClanTestFixtures.OTHER_USER_ID, 50)));
+
+        List<Clan> result = service.getLeaderboard(null);
+
+        assertThat(result).extracting(Clan::getId).containsExactly(highId, lowId);
+    }
+
+    @Test
+    void readMembershipViews_delegateToRepository() {
+        ClanMember member = ClanTestFixtures.member(ClanTestFixtures.MEMBER_ID, 10);
+        when(repository.findMembersByClanId(ClanTestFixtures.CLAN_ID)).thenReturn(List.of(member));
+        when(repository.findPendingMembersByClanId(ClanTestFixtures.CLAN_ID)).thenReturn(List.of(member));
+        when(repository.findMemberByUserId(ClanTestFixtures.MEMBER_ID)).thenReturn(Optional.of(member));
+
+        assertThat(service.getMembers(ClanTestFixtures.CLAN_ID)).containsExactly(member);
+        assertThat(service.getPendingMembers(ClanTestFixtures.CLAN_ID)).containsExactly(member);
+        assertThat(service.getMembership(ClanTestFixtures.MEMBER_ID)).contains(member);
+    }
+
     // --- B3 Event-driven scoring ---
 
     @Test
@@ -318,6 +358,16 @@ class ClanServiceImplTest {
     }
 
     @Test
+    void processAchievementUnlocked_noAcceptedMembership_skipsBonus() {
+        when(repository.findMemberByUserId(ClanTestFixtures.MEMBER_ID)).thenReturn(Optional.empty());
+
+        service.processAchievementUnlocked(ClanTestFixtures.MEMBER_ID, "BADGE_X");
+
+        verify(repository, never()).markAchievementBonusProcessed(any(), anyString());
+        verify(repository, never()).updateMemberScore(any(), anyInt());
+    }
+
+    @Test
     void processMissionCompleted_acceptedMember_recordsMission() {
         ClanMember member = ClanTestFixtures.member(ClanTestFixtures.MEMBER_ID, 0);
         when(repository.findMemberByUserId(ClanTestFixtures.MEMBER_ID)).thenReturn(Optional.of(member));
@@ -327,6 +377,70 @@ class ClanServiceImplTest {
 
         verify(repository).recordMissionCompletion(ClanTestFixtures.MEMBER_ID, ClanTestFixtures.CLAN_ID);
         verify(repository).updateClanScore(eq(ClanTestFixtures.CLAN_ID), anyInt(), anyDouble());
+    }
+
+    @Test
+    void processMissionCompleted_noAcceptedMembership_skipsMission() {
+        when(repository.findMemberByUserId(ClanTestFixtures.MEMBER_ID))
+                .thenReturn(Optional.of(ClanTestFixtures.member(ClanTestFixtures.MEMBER_ID, 0, "PENDING")));
+
+        service.processMissionCompleted(ClanTestFixtures.MEMBER_ID);
+
+        verify(repository, never()).recordMissionCompletion(any(), any());
+    }
+
+    @Test
+    void processMissionRewardClaimed_acceptedMember_addsRewardAndUpdatesClan() {
+        ClanMember member = ClanTestFixtures.member(ClanTestFixtures.MEMBER_ID, 10);
+        when(repository.findMemberByUserId(ClanTestFixtures.MEMBER_ID)).thenReturn(Optional.of(member));
+        stubUpdateClanStatusNeutral();
+
+        service.processMissionRewardClaimed(ClanTestFixtures.MEMBER_ID, 25);
+
+        verify(repository).updateMemberScore(member.getId(), 35);
+        verify(repository).updateClanScore(eq(ClanTestFixtures.CLAN_ID), anyInt(), anyDouble());
+    }
+
+    @Test
+    void processMissionRewardClaimed_noAcceptedMembership_skipsReward() {
+        when(repository.findMemberByUserId(ClanTestFixtures.MEMBER_ID)).thenReturn(Optional.empty());
+
+        service.processMissionRewardClaimed(ClanTestFixtures.MEMBER_ID, 25);
+
+        verify(repository, never()).updateMemberScore(any(), anyInt());
+    }
+
+    @Test
+    void processUserActivity_crossesThreshold_promotesClanAndPublishesEvents() {
+        ClanMember before = ClanTestFixtures.member(ClanTestFixtures.MEMBER_ID, 90);
+        ClanMember after = ClanTestFixtures.member(ClanTestFixtures.MEMBER_ID, 110);
+        when(repository.findMemberByUserId(ClanTestFixtures.MEMBER_ID)).thenReturn(Optional.of(before));
+        when(repository.findClanById(ClanTestFixtures.CLAN_ID))
+                .thenReturn(Optional.of(ClanTestFixtures.clan(Tier.BRONZE, 0)));
+        when(repository.findMembersByClanId(ClanTestFixtures.CLAN_ID)).thenReturn(List.of(after));
+        when(repository.getClanActivitySummary(ClanTestFixtures.CLAN_ID))
+                .thenReturn(new ClanRepository.ClanActivitySummary(0, 0, 10, 20));
+
+        service.processUserActivity(ClanTestFixtures.MEMBER_ID, 20, 20, Instant.now());
+
+        verify(repository).updateClanTier(ClanTestFixtures.CLAN_ID, Tier.SILVER);
+        assertThat(captures.sent.stream().anyMatch(s -> s.payload() instanceof ClanPromotedEvent)).isTrue();
+    }
+
+    @Test
+    void processMissionCompleted_lowerRawScore_demotesClanAndPublishesEvents() {
+        ClanMember member = ClanTestFixtures.member(ClanTestFixtures.MEMBER_ID, 50);
+        when(repository.findMemberByUserId(ClanTestFixtures.MEMBER_ID)).thenReturn(Optional.of(member));
+        when(repository.findClanById(ClanTestFixtures.CLAN_ID))
+                .thenReturn(Optional.of(ClanTestFixtures.clan(Tier.SILVER, 0)));
+        when(repository.findMembersByClanId(ClanTestFixtures.CLAN_ID)).thenReturn(List.of(member));
+        when(repository.getClanActivitySummary(ClanTestFixtures.CLAN_ID))
+                .thenReturn(new ClanRepository.ClanActivitySummary(0, 0, 10, 20));
+
+        service.processMissionCompleted(ClanTestFixtures.MEMBER_ID);
+
+        verify(repository).updateClanTier(ClanTestFixtures.CLAN_ID, Tier.BRONZE);
+        assertThat(captures.sent.stream().anyMatch(s -> s.payload() instanceof ClanDemotedEvent)).isTrue();
     }
 
     // --- B4 Buff / debuff ---
@@ -441,6 +555,68 @@ class ClanServiceImplTest {
 
         verify(repository).resetAllMemberScores();
         verify(repository).clearAllDailyActivity();
+    }
+
+    @Test
+    void triggerEndOfSeason_silverTier_demotesBottomClanAndPublishesEvent() {
+        UUID highId = UUID.randomUUID();
+        UUID lowId = UUID.randomUUID();
+        Clan high = ClanTestFixtures.clanWithId(highId, Tier.SILVER, 200, ClanTestFixtures.LEADER_ID);
+        Clan low = ClanTestFixtures.clanWithId(lowId, Tier.SILVER, 20, ClanTestFixtures.MEMBER_ID);
+        when(repository.findClansByTier(Tier.BRONZE)).thenReturn(List.of());
+        when(repository.findClansByTier(Tier.SILVER)).thenReturn(new ArrayList<>(List.of(high, low)));
+        when(repository.findClansByTier(Tier.GOLD)).thenReturn(List.of());
+        when(repository.findClansByTier(Tier.DIAMOND)).thenReturn(List.of());
+        when(repository.findAllClans()).thenReturn(List.of(high, low));
+        when(repository.findMembersByClanId(highId))
+                .thenReturn(List.of(ClanTestFixtures.member(ClanTestFixtures.LEADER_ID, 200)));
+        when(repository.findMembersByClanId(lowId))
+                .thenReturn(List.of(ClanTestFixtures.member(ClanTestFixtures.MEMBER_ID, 20)));
+
+        service.triggerEndOfSeason();
+
+        verify(repository).updateClanTier(lowId, Tier.BRONZE);
+        assertThat(captures.sent.stream().anyMatch(s -> s.payload() instanceof ClanDemotedEvent)).isTrue();
+    }
+
+    @Test
+    void recalculateAllTiers_updatesEveryClan() {
+        Clan clanA = ClanTestFixtures.clanWithId(UUID.randomUUID(), Tier.BRONZE, 0, ClanTestFixtures.LEADER_ID);
+        Clan clanB = ClanTestFixtures.clanWithId(UUID.randomUUID(), Tier.SILVER, 0, ClanTestFixtures.MEMBER_ID);
+        when(repository.findAllClans()).thenReturn(List.of(clanA, clanB));
+        when(repository.findClanById(clanA.getId())).thenReturn(Optional.of(clanA));
+        when(repository.findClanById(clanB.getId())).thenReturn(Optional.of(clanB));
+        when(repository.findMembersByClanId(clanA.getId()))
+                .thenReturn(List.of(ClanTestFixtures.member(ClanTestFixtures.LEADER_ID, 10)));
+        when(repository.findMembersByClanId(clanB.getId()))
+                .thenReturn(List.of(ClanTestFixtures.member(ClanTestFixtures.MEMBER_ID, 200)));
+        when(repository.getClanActivitySummary(any()))
+                .thenReturn(new ClanRepository.ClanActivitySummary(0, 0, 10, 20));
+
+        service.recalculateAllTiers();
+
+        verify(repository).updateClanScore(eq(clanA.getId()), anyInt(), anyDouble());
+        verify(repository).updateClanScore(eq(clanB.getId()), anyInt(), anyDouble());
+    }
+
+    @Test
+    void addAdminScore_clanFound_updatesScore() {
+        Clan clan = ClanTestFixtures.clan(Tier.BRONZE, 25);
+        when(repository.findClanById(ClanTestFixtures.CLAN_ID)).thenReturn(Optional.of(clan));
+
+        service.addAdminScore(ClanTestFixtures.CLAN_ID, 15);
+
+        verify(repository).updateClanScore(ClanTestFixtures.CLAN_ID, 40, 1.0);
+    }
+
+    @Test
+    void addAdminScore_clanNotFound_throws404() {
+        when(repository.findClanById(ClanTestFixtures.CLAN_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addAdminScore(ClanTestFixtures.CLAN_ID, 15))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((ResponseStatusException) ex).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
     }
 
     private void stubClanFound() {
