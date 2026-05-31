@@ -280,23 +280,32 @@ public class ClanRepository {
     }
 
     public void recordQuizActivity(UUID userId, UUID clanId, int correct, int total) {
-        jdbcTemplate.update("""
-            INSERT INTO member_activity (id, clan_id, user_id, activity_date, quizzes_taken, total_correct_answers, total_questions)
-            VALUES (?, ?, ?, CURRENT_DATE, 1, ?, ?)
-            ON CONFLICT (user_id, activity_date) DO UPDATE SET
-                quizzes_taken = member_activity.quizzes_taken + 1,
-                total_correct_answers = member_activity.total_correct_answers + EXCLUDED.total_correct_answers,
-                total_questions = member_activity.total_questions + EXCLUDED.total_questions
-            """, UUID.randomUUID(), clanId, userId, correct, total);
+        int rows = jdbcTemplate.update("""
+            UPDATE member_activity SET
+                quizzes_taken = quizzes_taken + 1,
+                total_correct_answers = total_correct_answers + ?,
+                total_questions = total_questions + ?
+            WHERE user_id = ? AND activity_date = CURRENT_DATE
+            """, correct, total, userId);
+        if (rows == 0) {
+            jdbcTemplate.update("""
+                INSERT INTO member_activity (id, clan_id, user_id, activity_date, quizzes_taken, total_correct_answers, total_questions)
+                VALUES (?, ?, ?, CURRENT_DATE, 1, ?, ?)
+                """, UUID.randomUUID(), clanId, userId, correct, total);
+        }
     }
 
     public void recordMissionCompletion(UUID userId, UUID clanId) {
-        jdbcTemplate.update("""
-            INSERT INTO member_activity (id, clan_id, user_id, activity_date, mission_completed)
-            VALUES (?, ?, ?, CURRENT_DATE, TRUE)
-            ON CONFLICT (user_id, activity_date) DO UPDATE SET
-                mission_completed = TRUE
-            """, UUID.randomUUID(), clanId, userId);
+        int rows = jdbcTemplate.update("""
+            UPDATE member_activity SET mission_completed = TRUE
+            WHERE user_id = ? AND activity_date = CURRENT_DATE
+            """, userId);
+        if (rows == 0) {
+            jdbcTemplate.update("""
+                INSERT INTO member_activity (id, clan_id, user_id, activity_date, mission_completed)
+                VALUES (?, ?, ?, CURRENT_DATE, TRUE)
+                """, UUID.randomUUID(), clanId, userId);
+        }
     }
 
     public ClanActivitySummary getClanActivitySummary(UUID clanId) {
