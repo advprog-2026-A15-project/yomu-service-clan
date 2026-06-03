@@ -14,7 +14,7 @@ public class GoldScoringStrategy implements ScoringStrategy {
         double weighted = 0;
         double totalWeight = 0;
         for (int i = 0; i < sorted.size(); i++) {
-            double w = sorted.size() - i;
+            double w = (double) sorted.size() - i;
             weighted += sorted.get(i).getPersonalScore() * w;
             totalWeight += w;
         }

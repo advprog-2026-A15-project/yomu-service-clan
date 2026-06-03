@@ -15,7 +15,7 @@ public class DiamondScoringStrategy implements ScoringStrategy {
         double totalWeight = 0;
         int inactiveCount = 0;
         for (int i = 0; i < sorted.size(); i++) {
-            double w = sorted.size() - i;
+            double w = (double) sorted.size() - i;
             if (sorted.get(i).getPersonalScore() == 0) inactiveCount++;
             weighted += sorted.get(i).getPersonalScore() * w;
             totalWeight += w;
